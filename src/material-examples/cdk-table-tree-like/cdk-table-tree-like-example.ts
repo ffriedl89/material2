@@ -4,10 +4,20 @@ import {
   ViewEncapsulation,
   Input,
   Directive,
-  SkipSelf
+  SkipSelf,
+  InjectionToken,
+  ElementRef,
+  OnDestroy,
+  Inject,
+  Self,
+  Renderer2
 } from '@angular/core';
 import {Observable, of as observableOf} from 'rxjs';
-import {FlatTreeControl, CdkTreeNode, CdkTree, TreeControl, CdkTreeNodeToggle} from '@angular/cdk/tree';
+import {FlatTreeControl,
+  CdkTreeNode,
+  CdkTree,
+  TreeControl,
+  CdkTreeNodeToggle} from '@angular/cdk/tree';
 import {MatTreeFlattener, MatTreeFlatDataSource} from '@angular/material/tree';
 import {
   CDK_ROW_TEMPLATE,
@@ -15,8 +25,16 @@ import {
   CDK_TABLE_TEMPLATE,
   CdkTable,
   CdkCell,
+  CdkColumnDef,
 } from '@angular/cdk/table';
-import { coerceBooleanProperty } from '@angular/cdk/coercion';
+
+/** Injection token used to get the instance of the custom row instance  */
+export const CUSTOM_ROW_RESOLVER = new InjectionToken<Function>('custom-row-resolver');
+
+export function CUSTOM_ROW_RESOLVER_PROVIDER_FACTORY(c: CustomCell<any>): Function {
+  const resolver = () => c._row as CustomRow<any>;
+  return resolver;
+}
 
 /**
  * File node data with nested structure.
@@ -107,7 +125,7 @@ export class CdkTableTreeLikeExample {
   hasChild = (_: number, _nodeData: FileFlatNode) => _nodeData.expandable;
 
   transformer = (node: FileNode, level: number) => {
-    return new FileFlatNode(!!node.children, node.filename, level, node.type);
+    return new FileFlatNode(node.children.length > 0, node.filename, level, node.type);
   }
 
   private _getLevel = (node: FileFlatNode) => node.level;
@@ -134,7 +152,24 @@ export class CdkTableTreeLikeExample {
     {provide: CdkTreeNode, useExisting: CustomRow}
   ],
 })
-export class CustomRow<T> extends CdkRow<T> { }
+export class CustomRow<T> extends CdkRow<T> implements OnDestroy {
+  /**
+   * @internal
+   * Necessary due to the fact that we cannot get the DtRow via normal DI
+   */
+  static mostRecentRow: CustomRow<any> | null = null;
+
+  constructor() {
+    super();
+    CustomRow.mostRecentRow = this;
+  }
+
+  ngOnDestroy(): void {
+    if (CustomRow.mostRecentRow === this) {
+      CustomRow.mostRecentRow = null;
+    }
+  }
+}
 
 /**
  * Wrapper for the CdkTable.
@@ -162,9 +197,54 @@ export class CustomTable<T> extends CdkTable<T> {
   exportAs: 'customCell',
   host: {
     'class': 'custom-cell',
+    'style.vertical-align': 'middle',
   },
+  providers: [
+    {
+      provide: CUSTOM_ROW_RESOLVER,
+      useFactory: CUSTOM_ROW_RESOLVER_PROVIDER_FACTORY,
+      deps: [[new Self(), CustomCell]],
+    },
+  ],
 })
-export class CustomCell extends CdkCell {
+export class CustomCell<T> extends CdkCell {
+  /**
+   * @internal
+   * The parent row
+   */
+  _row: CustomRow<any>;
+
+  private _level: number;
+
+  private _indent = 20;
+
+  constructor(
+    columnDef: CdkColumnDef,
+    private _renderer: Renderer2,
+    private _elementRef: ElementRef,
+    @SkipSelf() private _tree: CdkTree<T>
+  ) {
+    super(columnDef, _elementRef);
+    if (CustomRow.mostRecentRow) {
+      this._row = CustomRow.mostRecentRow;
+    }
+    Promise.resolve().then(() => this._setPadding());
+  }
+
+  private _paddingIndent(): string | null {
+    const treeControl = this._tree.treeControl as TreeControl<T>;
+    const row = this._row as CustomRow<T>;
+    const nodeLevel = (row.data && treeControl.getLevel)
+      ? treeControl.getLevel(row.data)
+      : null;
+    const level = this._level || nodeLevel;
+    return level ? `${level * this._indent}px` : null;
+  }
+
+  private _setPadding(): void {
+    const padding = this._paddingIndent();
+    this._renderer.setStyle(this._elementRef.nativeElement, 'paddingLeft', padding);
+  }
 }
 
 /**
@@ -177,17 +257,9 @@ export class CustomCell extends CdkCell {
   }
 })
 export class CustomTreeNodeToggle<T> extends CdkTreeNodeToggle<T> {
-  /** Whether expand/collapse the node recursively. */
-  @Input('customTreeNodeToggleRecursive')
-  get recursive(): boolean { return this._recursive; }
-  set recursive(value: boolean) { this._recursive = coerceBooleanProperty(value); }
-  protected _recursive = false;
-
-  constructor(protected _tree: CdkTree<T>, @SkipSelf() protected _row: CdkTreeNode<T>) {
-    super(_tree, _row);
-  }
-
-  _toggle(event: Event): void {
-    super._toggle(event);
+  constructor(
+    _tree: CdkTree<T>,
+    @Inject(CUSTOM_ROW_RESOLVER) @SkipSelf() _rowResolver: Function) {
+    super(_tree, _rowResolver() as unknown as CdkTreeNode<T>);
   }
 }

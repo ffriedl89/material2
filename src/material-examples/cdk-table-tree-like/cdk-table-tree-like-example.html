@@ -2,13 +2,16 @@
   <!-- filename Column -->
   <ng-container cdkColumnDef="filename">
     <th cdk-header-cell *cdkHeaderCellDef> Filename </th>
-    <td custom-cell *cdkCellDef="let file" cdkTreeNodePadding>
-      <button mat-icon-button [attr.aria-label]="'toggle ' + file.filename" customTreeNodeToggle>
-        <mat-icon class="mat-icon-rtl-mirror">
-          {{treeControl.isExpanded(file) ? 'expand_more' : 'chevron_right'}}
-        </mat-icon>
-      </button>
-      {{file.filename}}
+    <td custom-cell *cdkCellDef="let file">
+        <button mat-icon-button [attr.aria-label]="'toggle ' + file.filename" customTreeNodeToggle *ngIf="treeControl.isExpandable(file)">
+          <mat-icon class="mat-icon-rtl-mirror">
+            {{treeControl.isExpanded(file) ? 'expand_more' : 'chevron_right'}}
+          </mat-icon>
+        </button>
+        <button mat-icon-button disabled *ngIf="!treeControl.isExpandable(file)">
+            <mat-icon class="mat-icon-rtl-mirror">remove</mat-icon>
+        </button>
+        {{file.filename}}
     </td>
   </ng-container>
 
